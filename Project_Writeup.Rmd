@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(caret); library(ggplot2); library(rattle) 
+library(caret); library(ggplot2); library(rattle); library(pheatmap)
 
 ```
 
@@ -46,8 +46,7 @@ trainData <- trainData[,c(Blank_Cols)]
 
 # Impute any remaining missing values and standardize
 preProcObj <- preProcess(trainData[,-100], method = "knnImpute")
-trainData <- data.frame(predict(preProcObj, trainData), as.factor(Class))
-
+trainData <- data.frame(predict(preProcObj, trainData), "class" = as.factor(Class))
 
 ````
 
@@ -68,21 +67,51 @@ sum(nZero_Predictors$nzv == TRUE)
 
 * Number of variables with near zero variance contribution is zero. Hence we retain them all. 
 
-* Correlation analysis
+* Correlation analysis 
 
-```{r VariableCor, cache=TRUE, fig.align='center'}
-
+```{r VariableCor, cache=TRUE, fig.align='center', fig.width=7, fig.height=7, echo=FALSE}
 Cor_Mat <- cor(trainData[,-53])
 diag(Cor_Mat) <- 0 # Removing diag values
 
 Cor_df <- data.frame(which(abs(Cor_Mat) > 0.8, arr.ind = T))
-length(sort(unique(Cor_df$col))) 
-
-pheatmap(Cor_Mat)
+# Some highly correlated variable heatmap
+pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
 ```
 
-* Basic correlation analysis for finding variables that are highly correlated tells us that almost `22` variables are highly correlated `(abs(cor_value) > 0.8)` with each other.
+* Basic correlation analysis for finding variables that are highly correlated tells us that almost `r length(sort(unique(Cor_df$col)))` variables are highly correlated `(abs(cor_value) > 0.8)` with each other.
 
+* We cannot simply remove the variable because that would result in creating a bias. So we choose to use PCA and use those variables for model building.
+
+* We could also have opted for other methods like `Boosting` but since we're not concerned much about interpretability of individual variables we will go ahead with our lazy option of PCA.
+
+```{r PCA_Preprocess, cache=TRUE, echo=FALSE}
+prCom <- preProcess(trainData, method = "pca")
+trainData.PCA <- predict(prCom, newdata = trainData)
+
+# 
+boxplot()
+
+```
+
+
+----
+
+#### Testing the model
+
+* First we do the exact same transformations to the test data that we did to the training data.
+
+```{r TestData, cache=TRUE, eval=FALSE, echo=FALSE}
+testData <- as.data.frame(read.csv2("./Data/pml-testing.csv", header = T, sep =",", quote = '"'))
+testData <- testData[,-(1:7)]; Test.Class <- testData[,153]
+
+# Subsetting data with non missing/blank variables
+testData <- testData[,c(Blank_Cols)]
+
+# Impute
+testData <- data.frame(predict(preProcObj, testData), "class" = as.factor(Test.Class))
+testData.PCA <- predict(prCom, newdata = testData)
+
+```
 
 
 
