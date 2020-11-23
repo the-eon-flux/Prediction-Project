@@ -1,0 +1,94 @@
+---
+title: "Project Writeup"
+author: "Tejus"
+date: "23/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret); library(ggplot2); library(rattle) 
+
+```
+
+### Goal : 
+__To build a model for predicting the manner in which an individual did an exercise (the "class" variable)__
+
+#### Introduction :
+Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions (class A to class E). A key requirement for effective training to have a positive impact on cardio-respiratory fitness is a proper technique. Incorrect technique has been identified as the main cause of training injuries. The researchers in this work have tried to investigate the feasibility of automatically assessing the quality of execution of weight lifting exercises and the impact of providing real-time feedback to the athlete - so-called __qualitative activity recognition__.
+
+The class variables have been methodically formulated to define the _quality_ of the exercise done. They are defined as follows : 
+      * Exactly according to the specification (Class A)
+      * Throwing the elbows to the front (Class B)
+      * Lifting the dumbbell only halfway (Class C)
+      * Lowering the dumbbell only halfway (Class D)
+      * Throwing the hips to the front (Class E)
+
+----
+
+#### Data loading and standardizing
+
+* All the values are standardized by centering around mean & dividing by standard deviation.  
+
+````{r LoadData, warning = FALSE, cache=TRUE}
+
+trainData <- as.data.frame(read.csv2("./Data/pml-training.csv", header = T, sep =",", quote = '"'))
+trainData <- trainData[,-(1:7)]; Class <- trainData[,153]
+trainData <- apply(trainData[,-153], 2, function(COl){as.numeric(as.character(COl))})
+Blank_Cols <- apply(trainData, 2, function(Col)
+      {S = sum(is.na(Col))#;print(S)
+      if(S <= (length(Col)/1.5)) # Returns TRUE if the variable has <66% NAs else returns FALSE
+                  {return(TRUE)}else{return(FALSE)}})
+
+# Subsetting data with non missing/blank variables
+trainData <- trainData[,c(Blank_Cols)]
+#dim(trainData)
+
+# Impute any remaining missing values and standardize
+preProcObj <- preProcess(trainData[,-100], method = "knnImpute")
+trainData <- data.frame(predict(preProcObj, trainData), as.factor(Class))
+
+
+````
+
+
+* Also checked if any variable had values missing and removed `r sum((Blank_Cols == FALSE))` variables which had more than `r round((100/1.5),2)`% NAs
+
+* Also imputed the rest of small number of missing values with _knnImpute()_ method in `caret`
+
+---- 
+#### Exploratory Analysis : 
+
+* Removing variables with low contribution to output variation.
+
+```{r remZeroVar, cache=TRUE}
+nZero_Predictors <- nearZeroVar(trainData, saveMetrics = T)
+sum(nZero_Predictors$nzv == TRUE)
+```
+
+* Number of variables with near zero variance contribution is zero. Hence we retain them all. 
+
+* Correlation analysis
+
+```{r VariableCor, cache=TRUE, fig.align='center'}
+
+Cor_Mat <- cor(trainData[,-53])
+diag(Cor_Mat) <- 0 # Removing diag values
+
+Cor_df <- data.frame(which(abs(Cor_Mat) > 0.8, arr.ind = T))
+length(sort(unique(Cor_df$col))) 
+
+pheatmap(Cor_Mat)
+```
+
+* Basic correlation analysis for finding variables that are highly correlated tells us that almost `22` variables are highly correlated `(abs(cor_value) > 0.8)` with each other.
+
+
+
+
+
+
+
+
+
+
