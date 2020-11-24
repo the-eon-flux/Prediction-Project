@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(caret); library(ggplot2); library(rattle); library(pheatmap)
+library(caret); library(ggplot2); library(rattle); library(pheatmap); library(reshape2)
 
 ```
 
@@ -34,8 +34,13 @@ The class variables have been methodically formulated to define the _quality_ of
 
 trainData <- as.data.frame(read.csv2("./Data/pml-training.csv", header = T, sep =",", quote = '"'))
 trainData <- trainData[,-(1:7)]; Class <- trainData[,153]
-trainData <- apply(trainData[,-153], 2, function(COl){as.numeric(as.character(COl))})
-Blank_Cols <- apply(trainData, 2, function(Col)
+
+Cols <- colnames(trainData)[-153]
+for(i in Cols){
+   trainData[,i] <- as.numeric(as.character(trainData[,i]))
+}
+
+Blank_Cols <- apply(trainData[,-153], 2, function(Col)
       {S = sum(is.na(Col))#;print(S)
       if(S <= (length(Col)/1.5)) # Returns TRUE if the variable has <66% NAs else returns FALSE
                   {return(TRUE)}else{return(FALSE)}})
@@ -44,9 +49,33 @@ Blank_Cols <- apply(trainData, 2, function(Col)
 trainData <- trainData[,c(Blank_Cols)]
 #dim(trainData)
 
+# Outliers
+Indices <- apply(trainData[,-53], 2, function(Col){
+                  IQR_var <- IQR(Col)
+                  quantiles <- quantile(Col, probs = c(0.25,0.75), na.rm = T)
+                  down <- quantiles[1] - (1.5*IQR_var)
+                  up <- quantiles[2] + (1.5*IQR_var)
+                  which(Col > up | Col < down)
+})
+
+# Replacing outliers with NA
+for (i in 1:length(Indices)) {
+   Index <- c(Indices[[i]])
+   trainData[Index,i] <- NA
+}
+
 # Impute any remaining missing values and standardize
-preProcObj <- preProcess(trainData[,-100], method = "knnImpute")
+preProcObj <- preProcess(trainData, method = c("knnImpute","BoxCox"))
 trainData <- data.frame(predict(preProcObj, trainData), "class" = as.factor(Class))
+
+featurePlot(x=trainData[,1:6],
+            y = trainData$class,
+            plot="box", 
+            layout = c(2, 2), 
+            scales = list(y = list(relation="free"),
+                          x = list(rot=90)),
+            ## Add a key at the top 
+            auto.key = list(columns = 3))
 
 ````
 
@@ -84,12 +113,18 @@ pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
 
 * We could also have opted for other methods like `Boosting` but since we're not concerned much about interpretability of individual variables we will go ahead with our lazy option of PCA.
 
-```{r PCA_Preprocess, cache=TRUE, echo=FALSE}
+```{r PCA_Preprocess, cache=TRUE, echo=FALSE, fig.align='center', fig.width=8}
+
 prCom <- preProcess(trainData, method = "pca")
 trainData.PCA <- predict(prCom, newdata = trainData)
 
+trainData.melted <- melt(trainData, id = "class", measure.vars = c(colnames(trainData[,-53])))
 # 
-boxplot()
+'gg <- ggplot(aes(x = class, y =value, group = class), data = trainData.melted) +
+   + facet_wrap(~variable)
+'
+gg <- ggplot(aes(x = class,y =value, group = class), data = trainData.melted) + geom_boxplot(aes(fill=class)) + facet_wrap(~variable)
+plot(gg)
 
 ```
 
