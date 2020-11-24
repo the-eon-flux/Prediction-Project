@@ -1,5 +1,5 @@
 ---
-title: "Project Writeup"
+title: "Practical ML Project Writeup"
 author: "Tejus"
 date: "23/11/2020"
 output: html_document
@@ -11,13 +11,15 @@ library(caret); library(ggplot2); library(rattle); library(pheatmap); library(re
 set.seed(825)
 ```
 
-### Goal : 
-__To build a model for predicting the manner in which an individual did an exercise (the "class" variable)__
+#### __Goal : __
+
+To build a model for predicting the manner in which an individual did an exercise (the "class" variable)
 
 #### __Introduction :__
 Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions (class A to class E). A key requirement for effective training to have a positive impact on cardio-respiratory fitness is a proper technique. Incorrect technique has been identified as the main cause of training injuries. The researchers in this work have tried to investigate the feasibility of automatically assessing the quality of execution of weight lifting exercises and the impact of providing real-time feedback to the athlete - so-called __qualitative activity recognition__.
 
-The class variables have been methodically formulated to define the _quality_ of the exercise done. They are defined as follows : 
+The class variables have been methodically formulated to define the _quality_ of the exercise done. They are defined as follows :  
+
       * Exactly according to the specification (Class A)
       * Throwing the elbows to the front (Class B)
       * Lifting the dumbbell only halfway (Class C)
@@ -49,6 +51,11 @@ for(i in Cols){
 
 * Outliers were detected and those values were imputed with `knn` method from _caret_
 
+* Transformed the variables by `BoxCox` method from _caret_ 
+
+* Also imputed the rest of small number of missing values with _knnImpute()_ method in `caret`
+
+
 ```{r Missing_Data, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8}
 
 # Finding missing data
@@ -78,8 +85,6 @@ for (i in 1:length(Indices)) {
 
 ```
 
-* Transformed the variables by `BoxCox` method from _caret_ 
-* Also imputed the rest of small number of missing values with _knnImpute()_ method in `caret`
 
 ```{r BeforeNorm, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8,echo=FALSE}
 
@@ -125,7 +130,7 @@ sum(nZero_Predictors$nzv == TRUE)
 
    * Number of variables with near zero variance contribution is zero. Hence we retain them all. 
 
-* __Correlation analysis__
+* __Correlation analysis__ : Finding features with high correlation with each other.
 
 ```{r VariableCor, cache=TRUE, fig.align='center', fig.width=7, fig.height=7, echo=FALSE}
 Cor_Mat <- cor(trainData[,-53])
@@ -140,9 +145,9 @@ pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
 
 * We cannot simply remove the variable because that would result in creating a bias. So one way we can do this is choose to use PCA and use the variables from PCA for model building.
 
-* We also can test a model which does `Boosting` like `bgm`.
+* We also can test a model which does `Boosting` like `bgm`. First let's create PCA meta-variables.
 
-```{r PCA_Preprocess, cache=TRUE, echo=FALSE, fig.align='center', fig.width=8}
+```{r PCA_Preprocess, cache=TRUE, fig.align='center', fig.width=8}
 prCom <- preProcess(trainData, method = "pca")
 trainData.PCA <- predict(prCom, newdata = trainData)
 
@@ -160,15 +165,11 @@ plot(1:length(percentVar), percentVar, xlab="Principal Components", ylab="% Vari
         
 ```
 
+----
+
 #### __Building a model : __
 
 * We will try multiple models and see which one performs best.
-```{r}
-fitControl <- trainControl(method = "cv",
-                           number = 1
-                           )
-```
-
 
 ```{r modelFits, cache=TRUE, warning=FALSE}
 set.seed(825)
@@ -181,50 +182,116 @@ mod_RF <- train(classe~., data = trainData.PCA, method = "rf")
 
 ```
 
-----
 
 #### Testing the model
 
 * First we do the exact same transformations to the test data that we did to the training data.
 
 ```{r TestData, cache=TRUE, warning=FALSE}
-
-testData <- testData[,-(1:7)]; testClass <- testData$classe
+# Subsetting
+testData <- testData[,-(1:7)]; testClass <- as.factor(testData$classe)
 
 Cols <- colnames(testData)[-153]
+# Typecasting
 for(i in Cols){
    testData[,i] <- as.numeric(as.character(testData[,i]))
 }
 # Subsetting data with non missing/blank variables
 testData <- testData[,c(Blank_Cols)]
 
-# Impute
+# Impute & scale
 testData <- data.frame(predict(preProcObj, testData))
 testData.PCA <- predict(prCom, newdata = testData)
+
 ```
 
-* Prediction for the test data
 
-```{r Prediction, cache=TRUE, eval=FALSE}
+* Prediction for the test data to give an idea about out-of-sample prediction error rates & other metrics.
+
+
+```{r Prediction, cache=TRUE, warning=FALSE}
 #fancyRpartPlot(mod_rPART$finalModel, palettes=c("Greys", "Blues"))
 
 pred_rPART <- predict(mod_rPART, newdata = testData)
 pred_GBM <- predict(mod_GBM, newdata = testData.PCA)
 pred_RF <- predict(mod_RF, newdata = testData.PCA)
 
-
 T_rPART <- confusionMatrix(testClass, pred_rPART)
 T_GBM <- confusionMatrix(testClass, pred_GBM)
 T_rf <- confusionMatrix(testClass, pred_RF)
-
 ```
 
 
-#### Predicting with the model for validation set
+* __Sensitivity__
 
-```{r Validation_Data, cache=TRUE, eval=FALSE, echo=FALSE}
+```{r Pred_Summary, echo=FALSE, cache=TRUE, warning=FALSE}
+
+library(formattable)
+
+customGreen0 = "#DeF7E9" ; customGreen = "#71CA97"
+customRed0 = "#f5d3d3" ; customRed = "#ff7f7f"
+customBlue0 = "#A5BDEE" ; customBlue = "#6995EE"
+
+Models <- c("rPART", "Random Forest", "Gradient Boosting (GBM)")
+Accuracy <- c(T_rPART$overall[1], T_rf$overall[1], T_GBM$overall[1])
+Kappa_Est <- c(T_rPART$overall[2], T_rf$overall[2], T_GBM$overall[2])
+Sensitivities <- data.frame(Models,rbind(t(T_rPART$byClass[,1]), (T_rf$byClass[,1]), (T_GBM$byClass[,1])))
+Specifities <- data.frame(Models,rbind(t(T_rPART$byClass[,2]), t(T_rf$byClass[,2]), t(T_GBM$byClass[,2])))
+
+Class <- paste("Class-",c(levels(testClass)), sep = "")
+colnames(Sensitivities) <- c("Models", Class)
+colnames(Specifities) <- c("Models", Class)
+
+# Sensitivities
+formattable(Sensitivities, 
+               list("Models" = formatter("span", style = ~ style(color = "dodgerblue4",font.weight = "bold")),
+               "Class-A" = color_tile(customBlue0, customBlue),
+               "Class-B" = color_tile(customBlue0, customBlue),
+               "Class-C" = color_tile(customBlue0, customBlue),
+               "Class-D" = color_tile(customBlue0, customBlue),
+               "Class-E" = color_tile(customBlue0, customBlue)
+               ))
+
+```
+
+* __Specificity__
+
+```{r Specificity, warning=FALSE, echo=FALSE, cache=TRUE}
+
+# Specifities
+formattable(Specifities, 
+               list("Models" = formatter("span", style = ~ style(color = "dodgerblue4",font.weight = "bold")),        
+               "Class-A" = color_tile(customBlue0, customBlue),
+               "Class-B" = color_tile(customBlue0, customBlue),
+               "Class-C" = color_tile(customBlue0, customBlue),
+               "Class-D" = color_tile(customBlue0, customBlue),
+               "Class-E" = color_tile(customBlue0, customBlue)
+               ))
+
+```
+
+* __Accuracy & Cohen's Kappa __
+
+```{r Overall_Summary,warning=FALSE, echo=FALSE, cache=TRUE}
+# Overall Summary
+df <- data.frame(Models, Accuracy, Kappa_Est)
+formattable(df, 
+            list("Models" = formatter("span", style = ~ style(color = "gray22",font.weight = "bold")),        "Accuracy" = color_tile(customGreen0, customGreen),
+                 "Kappa_Est" = color_tile(customGreen0, customGreen) ))
+```
+
+* Overall if we use `Random Forest` we get `70%` accuracy which is my estimate of out-of-sample error rate.
+
+---
+
+#### __Predicting with the model for validation set__
+
+* Again doing the same transformations & pre-processing as above
+
+```{r Validation_Data, cache=TRUE, warning=FALSE}
+
 Validation_Data <- as.data.frame(read.csv2("./Data/pml-testing.csv", header = T, sep =",", quote = '"'))
-Validation_Data <- Validation_Data[,-(1:7)]
+Validation_Data <- Validation_Data[,-(1:7)] ; Problem <- Validation_Data$problem_id
 
 Cols <- colnames(Validation_Data)[-153]
 for(i in Cols){
@@ -234,30 +301,41 @@ for(i in Cols){
 Validation_Data <- Validation_Data[,c(Blank_Cols)]
 
 # Impute
-Validation_Data <- data.frame(predict(preProcObj, Validation_Data), as.factor(testClass))
+Validation_Data <- data.frame(predict(preProcObj, Validation_Data))
 Validation_Data.PCA <- predict(prCom, newdata = Validation_Data)
 
 ```
 
-* Prediction on test data
+* Prediction on validation data
 
-```{r Prediction_Validation, cache=TRUE, eval=FALSE}
-#fancyRpartPlot(mod_rPART$finalModel, palettes=c("Greys", "Blues"))
+```{r Prediction_Validation, cache=TRUE, warning=FALSE}
 
-pred_rPART <- predict(mod_rPART, newdata = testData)
-pred_GBM <- predict(mod_GBM, newdata = testData.PCA)
-pred_RF <- predict(mod_RF, newdata = testData.PCA)
-
-
-T_rPART <- confusionMatrix(testClass, pred_rPART)
-T_GBM <- confusionMatrix(testClass, pred_GBM)
-T_rf <- confusionMatrix(testClass, pred_RF)
+Val_pred_rPART <- predict(mod_rPART, newdata = Validation_Data)
+Val_pred_GBM <- predict(mod_GBM, newdata = Validation_Data.PCA)
+Val_pred_RF <- predict(mod_RF, newdata = Validation_Data.PCA)
 
 ```
 
+* My prediction results
 
+```{r Table, echo=FALSE, cache=TRUE}
+temp <- data.frame(rbind( t(Val_pred_rPART), t(Val_pred_GBM), t(Val_pred_RF) ))
+colnames(temp) <- Problem
+Predictions <- data.frame(Models,temp)
 
+formattable(Predictions)
 
+```
+
+---
+
+### __Concluding remarks__
+
+* Bootstrapping was done in all the models with `reps = 25`
+
+* The known best performer __`Random Forest`__ performs better than other methods like `GBM & rPART` with an out of sample accuracy of __`70%`__
+
+* The sensitivity & specificity of __`Random Forest`__ for each of the __`class`__ variables was also better than the other two methods.
 
 
 
