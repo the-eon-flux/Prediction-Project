@@ -8,13 +8,13 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(caret); library(ggplot2); library(rattle); library(pheatmap); library(reshape2)
-
+set.seed(825)
 ```
 
 ### Goal : 
 __To build a model for predicting the manner in which an individual did an exercise (the "class" variable)__
 
-#### Introduction :
+#### __Introduction :__
 Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions (class A to class E). A key requirement for effective training to have a positive impact on cardio-respiratory fitness is a proper technique. Incorrect technique has been identified as the main cause of training injuries. The researchers in this work have tried to investigate the feasibility of automatically assessing the quality of execution of weight lifting exercises and the impact of providing real-time feedback to the athlete - so-called __qualitative activity recognition__.
 
 The class variables have been methodically formulated to define the _quality_ of the exercise done. They are defined as follows : 
@@ -26,20 +26,32 @@ The class variables have been methodically formulated to define the _quality_ of
 
 ----
 
-#### Data loading and standardizing
+#### __Data loading and standardizing__
 
-* All the values are standardized by centering around mean & dividing by standard deviation.  
+* Checked if any variable had values missing and removed `100` variables which had more than `r round((100/1.5),2)`% values NAs.
 
-````{r LoadData, warning = FALSE, cache=TRUE}
+```{r LoadData, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8, echo=FALSE}
 
-trainData <- as.data.frame(read.csv2("./Data/pml-training.csv", header = T, sep =",", quote = '"'))
-trainData <- trainData[,-(1:7)]; Class <- trainData[,153]
+InputData <- as.data.frame(read.csv2("./Data/pml-training.csv", header = T, sep =",", quote = '"'))
+trainIndex <- createDataPartition(y = InputData$classe, p = 0.70, list = FALSE)
+
+trainData <- InputData[trainIndex,] ; testData <- InputData[-trainIndex,]
+trainData <- trainData[,-(1:7)]
 
 Cols <- colnames(trainData)[-153]
 for(i in Cols){
    trainData[,i] <- as.numeric(as.character(trainData[,i]))
 }
 
+```
+
+* All the values are standardized by centering around mean & dividing by standard deviation.  
+
+* Outliers were detected and those values were imputed with `knn` method from _caret_
+
+```{r Missing_Data, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8}
+
+# Finding missing data
 Blank_Cols <- apply(trainData[,-153], 2, function(Col)
       {S = sum(is.na(Col))#;print(S)
       if(S <= (length(Col)/1.5)) # Returns TRUE if the variable has <66% NAs else returns FALSE
@@ -49,7 +61,7 @@ Blank_Cols <- apply(trainData[,-153], 2, function(Col)
 trainData <- trainData[,c(Blank_Cols)]
 #dim(trainData)
 
-# Outliers
+# Outlier detection
 Indices <- apply(trainData[,-53], 2, function(Col){
                   IQR_var <- IQR(Col)
                   quantiles <- quantile(Col, probs = c(0.25,0.75), na.rm = T)
@@ -64,39 +76,56 @@ for (i in 1:length(Indices)) {
    trainData[Index,i] <- NA
 }
 
-# Impute any remaining missing values and standardize
-preProcObj <- preProcess(trainData, method = c("knnImpute","BoxCox"))
-trainData <- data.frame(predict(preProcObj, trainData), "class" = as.factor(Class))
+```
 
-featurePlot(x=trainData[,1:6],
-            y = trainData$class,
-            plot="box", 
-            layout = c(2, 2), 
-            scales = list(y = list(relation="free"),
-                          x = list(rot=90)),
-            ## Add a key at the top 
-            auto.key = list(columns = 3))
-
-````
-
-
-* Also checked if any variable had values missing and removed `r sum((Blank_Cols == FALSE))` variables which had more than `r round((100/1.5),2)`% NAs
-
+* Transformed the variables by `BoxCox` method from _caret_ 
 * Also imputed the rest of small number of missing values with _knnImpute()_ method in `caret`
 
----- 
-#### Exploratory Analysis : 
+```{r BeforeNorm, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8,echo=FALSE}
 
-* Removing variables with low contribution to output variation.
+# Before normalization
+#trainData <- trainData.copy
+trainData.melted <- melt(trainData, id = "classe", measure.vars = c(colnames(trainData[,-53])))
+gg <- ggplot(aes(x = classe,y =value, group = classe), data = trainData.melted) + geom_boxplot(aes(fill=classe)) + facet_wrap(~variable) + labs(title = "Variables Boxplot prior Normalization") 
+plot(gg)
+
+```
+
+
+
+```{r normalize, echo=TRUE, warning=FALSE, cache=TRUE}
+# Impute any remaining missing values and standardize
+preProcObj <- preProcess(trainData, method = c("knnImpute","BoxCox"))
+trainData <- data.frame(predict(preProcObj, trainData))
+```
+
+
+```{r PostNorm, warning = FALSE, cache=TRUE, fig.align='center', fig.width=9, fig.height=8, echo=FALSE}
+
+#trainData.copy <- trainData
+Cols <- c(colnames(trainData)[-53])
+# After normalization
+trainData.melted <- melt(trainData, id = "classe", measure.vars = c(colnames(trainData[,-53])))
+
+gg <- ggplot(aes(x = classe,y =value, group = classe), data = trainData.melted) + geom_boxplot(aes(fill=classe)) + facet_wrap(~variable) + labs(title = "Variables Boxplot post standardizing & normalization") 
+plot(gg)
+
+```
+
+---- 
+
+#### __Exploratory Analysis : __
+
+* __Near Zero Variance Variables__ : Removing variables with low contribution to output variation.
 
 ```{r remZeroVar, cache=TRUE}
 nZero_Predictors <- nearZeroVar(trainData, saveMetrics = T)
 sum(nZero_Predictors$nzv == TRUE)
 ```
 
-* Number of variables with near zero variance contribution is zero. Hence we retain them all. 
+   * Number of variables with near zero variance contribution is zero. Hence we retain them all. 
 
-* Correlation analysis 
+* __Correlation analysis__
 
 ```{r VariableCor, cache=TRUE, fig.align='center', fig.width=7, fig.height=7, echo=FALSE}
 Cor_Mat <- cor(trainData[,-53])
@@ -109,25 +138,48 @@ pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
 
 * Basic correlation analysis for finding variables that are highly correlated tells us that almost `r length(sort(unique(Cor_df$col)))` variables are highly correlated `(abs(cor_value) > 0.8)` with each other.
 
-* We cannot simply remove the variable because that would result in creating a bias. So we choose to use PCA and use those variables for model building.
+* We cannot simply remove the variable because that would result in creating a bias. So one way we can do this is choose to use PCA and use the variables from PCA for model building.
 
-* We could also have opted for other methods like `Boosting` but since we're not concerned much about interpretability of individual variables we will go ahead with our lazy option of PCA.
+* We also can test a model which does `Boosting` like `bgm`.
 
 ```{r PCA_Preprocess, cache=TRUE, echo=FALSE, fig.align='center', fig.width=8}
-
 prCom <- preProcess(trainData, method = "pca")
 trainData.PCA <- predict(prCom, newdata = trainData)
 
-trainData.melted <- melt(trainData, id = "class", measure.vars = c(colnames(trainData[,-53])))
-# 
-'gg <- ggplot(aes(x = class, y =value, group = class), data = trainData.melted) +
-   + facet_wrap(~variable)
-'
-gg <- ggplot(aes(x = class,y =value, group = class), data = trainData.melted) + geom_boxplot(aes(fill=class)) + facet_wrap(~variable)
-plot(gg)
-
 ```
 
+* Scree plots showing variance explained by each PCs. We can see that almost all the components are required for modeling.
+
+```{r Scree, echo=FALSE, warning=FALSE, fig.align='center', fig.width=5, cache=TRUE}
+Var <- apply(trainData.PCA[,-1], 2, var)
+percentVar <- 100 * (round(Var / sum(Var),2))
+
+plot(1:length(percentVar), percentVar, xlab="Principal Components", ylab="% Variance Explained", pch=16, type="o", col="red", main = "Scree Plot", ylim=c(1,100))
+        lines(1:length(percentVar), cumsum(percentVar), type = "o", pch=16, col="dodgerblue")
+        text(x=rep(10, 2), y=c(mean(percentVar)+10, mean(cumsum(percentVar))-10), pos=4, labels = c("Variance", "Cumulative Variance"), col = c("red", "dodgerblue"))
+        
+```
+
+#### __Building a model : __
+
+* We will try multiple models and see which one performs best.
+```{r}
+fitControl <- trainControl(method = "cv",
+                           number = 1
+                           )
+```
+
+
+```{r modelFits, cache=TRUE, warning=FALSE}
+set.seed(825)
+# Model function 1
+mod_rPART <- train(classe~., data = trainData, method = "rpart") # rpart : R's pckg for partition trees
+# Model function 2 ; A Boosting alternative
+mod_GBM <- train(classe~., data = trainData.PCA, method = "gbm", verbose=FALSE)
+# Model function 2 ; Known best performer 1
+mod_RF <- train(classe~., data = trainData.PCA, method = "rf")
+
+```
 
 ----
 
@@ -135,19 +187,73 @@ plot(gg)
 
 * First we do the exact same transformations to the test data that we did to the training data.
 
-```{r TestData, cache=TRUE, eval=FALSE, echo=FALSE}
-testData <- as.data.frame(read.csv2("./Data/pml-testing.csv", header = T, sep =",", quote = '"'))
-testData <- testData[,-(1:7)]; Test.Class <- testData[,153]
+```{r TestData, cache=TRUE, warning=FALSE}
 
+testData <- testData[,-(1:7)]; testClass <- testData$classe
+
+Cols <- colnames(testData)[-153]
+for(i in Cols){
+   testData[,i] <- as.numeric(as.character(testData[,i]))
+}
 # Subsetting data with non missing/blank variables
 testData <- testData[,c(Blank_Cols)]
 
 # Impute
-testData <- data.frame(predict(preProcObj, testData), "class" = as.factor(Test.Class))
+testData <- data.frame(predict(preProcObj, testData))
 testData.PCA <- predict(prCom, newdata = testData)
+```
+
+* Prediction for the test data
+
+```{r Prediction, cache=TRUE, eval=FALSE}
+#fancyRpartPlot(mod_rPART$finalModel, palettes=c("Greys", "Blues"))
+
+pred_rPART <- predict(mod_rPART, newdata = testData)
+pred_GBM <- predict(mod_GBM, newdata = testData.PCA)
+pred_RF <- predict(mod_RF, newdata = testData.PCA)
+
+
+T_rPART <- confusionMatrix(testClass, pred_rPART)
+T_GBM <- confusionMatrix(testClass, pred_GBM)
+T_rf <- confusionMatrix(testClass, pred_RF)
 
 ```
 
+
+#### Predicting with the model for validation set
+
+```{r Validation_Data, cache=TRUE, eval=FALSE, echo=FALSE}
+Validation_Data <- as.data.frame(read.csv2("./Data/pml-testing.csv", header = T, sep =",", quote = '"'))
+Validation_Data <- Validation_Data[,-(1:7)]
+
+Cols <- colnames(Validation_Data)[-153]
+for(i in Cols){
+   Validation_Data[,i] <- as.numeric(as.character(Validation_Data[,i]))
+}
+# Subsetting data with non missing/blank variables
+Validation_Data <- Validation_Data[,c(Blank_Cols)]
+
+# Impute
+Validation_Data <- data.frame(predict(preProcObj, Validation_Data), as.factor(testClass))
+Validation_Data.PCA <- predict(prCom, newdata = Validation_Data)
+
+```
+
+* Prediction on test data
+
+```{r Prediction_Validation, cache=TRUE, eval=FALSE}
+#fancyRpartPlot(mod_rPART$finalModel, palettes=c("Greys", "Blues"))
+
+pred_rPART <- predict(mod_rPART, newdata = testData)
+pred_GBM <- predict(mod_GBM, newdata = testData.PCA)
+pred_RF <- predict(mod_RF, newdata = testData.PCA)
+
+
+T_rPART <- confusionMatrix(testClass, pred_rPART)
+T_GBM <- confusionMatrix(testClass, pred_GBM)
+T_rf <- confusionMatrix(testClass, pred_RF)
+
+```
 
 
 
