@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(caret); library(ggplot2); library(rattle); library(pheatmap); library(reshape2)
+library(corrplot)
 set.seed(825)
 ```
 
@@ -100,8 +101,10 @@ plot(gg)
 
 ```{r normalize, echo=TRUE, warning=FALSE, cache=TRUE}
 # Impute any remaining missing values and standardize
-preProcObj <- preProcess(trainData, method = c("knnImpute","BoxCox"))
+preProcObj <- preProcess(trainData, method = c("knnImpute","BoxCox", "center", "scale"))
 trainData <- data.frame(predict(preProcObj, trainData))
+trainData.copy <- trainData
+# trainData <- trainData.copy
 ```
 
 
@@ -133,12 +136,15 @@ sum(nZero_Predictors$nzv == TRUE)
 * __Correlation analysis__ : Finding features with high correlation with each other.
 
 ```{r VariableCor, cache=TRUE, fig.align='center', fig.width=7, fig.height=7, echo=FALSE}
+trainData$classe <- as.factor(trainData$classe)
 Cor_Mat <- cor(trainData[,-53])
 diag(Cor_Mat) <- 0 # Removing diag values
 
 Cor_df <- data.frame(which(abs(Cor_Mat) > 0.8, arr.ind = T))
 # Some highly correlated variable heatmap
-pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
+#pheatmap(Cor_Mat[c(unique(Cor_df$row)),c(unique(Cor_df$col))])
+corrplot(Cor_Mat, method = "color", type = "lower")
+
 ```
 
 * Basic correlation analysis for finding variables that are highly correlated tells us that almost `r length(sort(unique(Cor_df$col)))` variables are highly correlated `(abs(cor_value) > 0.8)` with each other.
@@ -171,15 +177,21 @@ plot(1:length(percentVar), percentVar, xlab="Principal Components", ylab="% Vari
 
 * We will try multiple models and see which one performs best.
 
-```{r modelFits, cache=TRUE, warning=FALSE}
+```{r modelFits, cache=TRUE, warning=TRUE}
 set.seed(825)
 # Model function 1
 mod_rPART <- train(classe~., data = trainData, method = "rpart") # rpart : R's pckg for partition trees
 # Model function 2 ; A Boosting alternative
-mod_GBM <- train(classe~., data = trainData.PCA, method = "gbm", verbose=FALSE)
-# Model function 2 ; Known best performer 1
-mod_RF <- train(classe~., data = trainData.PCA, method = "rf")
+controlBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
 
+mod_GBM <- train(classe~., data = trainData, trControl = controlBM, method = "gbm", verbose=FALSE)
+
+# Model function 2 ; Known best performer 1
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+mod_RF <- train(classe~., data = trainData, method = "rf", trControl= controlRF, allowParallel=TRUE)
+
+
+ 
 ```
 
 
@@ -201,7 +213,6 @@ testData <- testData[,c(Blank_Cols)]
 
 # Impute & scale
 testData <- data.frame(predict(preProcObj, testData))
-testData.PCA <- predict(prCom, newdata = testData)
 
 ```
 
@@ -209,16 +220,18 @@ testData.PCA <- predict(prCom, newdata = testData)
 * Prediction for the test data to give an idea about out-of-sample prediction error rates & other metrics.
 
 
-```{r Prediction, cache=TRUE, warning=FALSE}
+```{r Prediction, warning=FALSE}
 #fancyRpartPlot(mod_rPART$finalModel, palettes=c("Greys", "Blues"))
 
 pred_rPART <- predict(mod_rPART, newdata = testData)
-pred_GBM <- predict(mod_GBM, newdata = testData.PCA)
-pred_RF <- predict(mod_RF, newdata = testData.PCA)
+pred_GBM <- predict(mod_GBM, newdata = testData)
+pred_RF <- predict(mod_RF, newdata = testData)
 
 T_rPART <- confusionMatrix(testClass, pred_rPART)
-T_GBM <- confusionMatrix(testClass, pred_GBM)
+T_GBM <- confusionMatrix(pred_GBM,testClass)
 T_rf <- confusionMatrix(testClass, pred_RF)
+
+
 ```
 
 
@@ -302,7 +315,6 @@ Validation_Data <- Validation_Data[,c(Blank_Cols)]
 
 # Impute
 Validation_Data <- data.frame(predict(preProcObj, Validation_Data))
-Validation_Data.PCA <- predict(prCom, newdata = Validation_Data)
 
 ```
 
@@ -311,8 +323,8 @@ Validation_Data.PCA <- predict(prCom, newdata = Validation_Data)
 ```{r Prediction_Validation, cache=TRUE, warning=FALSE}
 
 Val_pred_rPART <- predict(mod_rPART, newdata = Validation_Data)
-Val_pred_GBM <- predict(mod_GBM, newdata = Validation_Data.PCA)
-Val_pred_RF <- predict(mod_RF, newdata = Validation_Data.PCA)
+Val_pred_GBM <- predict(mod_GBM, newdata = Validation_Data)
+Val_pred_RF <- predict(mod_RF, newdata = Validation_Data)
 
 ```
 
@@ -333,7 +345,7 @@ formattable(Predictions)
 
 * Bootstrapping was done in all the models with `reps = 25`
 
-* The known best performer __`Random Forest`__ performs better than other methods like `GBM & rPART` with an out of sample accuracy of __`70%`__
+* The known best performer __`Random Forest`__ performs better than other methods like `GBM & rPART` with an out of sample accuracy of __`87%`__
 
 * The sensitivity & specificity of __`Random Forest`__ for each of the __`class`__ variables was also better than the other two methods.
 

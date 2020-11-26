@@ -7,4 +7,5 @@ bitops
 rattle
 pheatmap
 reshape2
+corrplot
 formattable
