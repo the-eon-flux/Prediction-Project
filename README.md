@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The goal of your project is to predict the manner in which they did the exercise ("class" variable). Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:  
+The goal of this project is to predict the manner in which the subjects did the exercise ("class" variable). Six young healthy participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:  
 
       * Exactly according to the specification (Class A)
       * Throwing the elbows to the front (Class B)
